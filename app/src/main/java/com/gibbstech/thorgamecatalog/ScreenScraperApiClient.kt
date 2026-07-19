@@ -80,9 +80,7 @@ class ScreenScraperApiClient {
             .distinct()
             .take(8)
 
-        val videoUrl = media.firstOrNull {
-            it.optString("type").lowercase().startsWith("video")
-        }?.optString("url")?.takeIf(String::isNotBlank)
+        val videoUrl = preferredScreenScraperVideoUrl(media)
 
         val synopsis = localizedText(match.optJSONArray("synopsis"), listOf("en", "fr", "de"))
         val developer = match.optString("developpeur").takeIf(String::isNotBlank)
@@ -168,3 +166,18 @@ internal fun screenScraperApiError(body: String): String? = runCatching {
         ?.trim()
         ?.takeIf(String::isNotBlank)
 }.getOrNull()
+
+internal fun preferredScreenScraperVideoUrl(media: List<JSONObject>): String? {
+    val normalized = media.firstOrNull {
+        it.optString("type").equals("video-normalized", ignoreCase = true)
+    }
+    val original = media.firstOrNull {
+        it.optString("type").equals("video", ignoreCase = true)
+    } ?: media.firstOrNull {
+        it.optString("type").startsWith("video", ignoreCase = true)
+    }
+    return (normalized ?: original)
+        ?.optString("url")
+        ?.replace("&amp;", "&")
+        ?.takeIf(String::isNotBlank)
+}
