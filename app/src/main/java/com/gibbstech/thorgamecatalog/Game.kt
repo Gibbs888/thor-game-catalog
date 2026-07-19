@@ -1,88 +1,138 @@
 package com.gibbstech.thorgamecatalog
 
-import android.net.Uri
-
 enum class Platform(
     val id: String,
     val label: String,
     val shortLabel: String,
     val thumbnailRepository: String,
-    val officialDomain: String,
+    val igdbId: Int,
+    val screenScraperId: Int,
+    val nativeCutoffYear: Int,
 ) {
     PS1(
         id = "ps1",
         label = "PlayStation 1",
         shortLabel = "PS1",
         thumbnailRepository = "Sony_-_PlayStation",
-        officialDomain = "playstation.com",
+        igdbId = 7,
+        screenScraperId = 57,
+        nativeCutoffYear = 1989,
     ),
     PS2(
         id = "ps2",
         label = "PlayStation 2",
         shortLabel = "PS2",
         thumbnailRepository = "Sony_-_PlayStation_2",
-        officialDomain = "playstation.com",
+        igdbId = 8,
+        screenScraperId = 58,
+        nativeCutoffYear = 1995,
     ),
     PSP(
         id = "psp",
         label = "PlayStation Portable",
         shortLabel = "PSP",
         thumbnailRepository = "Sony_-_PlayStation_Portable",
-        officialDomain = "playstation.com",
+        igdbId = 38,
+        screenScraperId = 61,
+        nativeCutoffYear = 2001,
     ),
     GAMECUBE(
         id = "gamecube",
         label = "Nintendo GameCube",
         shortLabel = "GC",
         thumbnailRepository = "Nintendo_-_GameCube",
-        officialDomain = "nintendo.com",
+        igdbId = 21,
+        screenScraperId = 13,
+        nativeCutoffYear = 1996,
     ),
     WII(
         id = "wii",
         label = "Nintendo Wii",
         shortLabel = "Wii",
         thumbnailRepository = "Nintendo_-_Wii",
-        officialDomain = "nintendo.com",
+        igdbId = 5,
+        screenScraperId = 16,
+        nativeCutoffYear = 2004,
     ),
     DREAMCAST(
         id = "dreamcast",
         label = "SEGA Dreamcast",
         shortLabel = "DC",
         thumbnailRepository = "Sega_-_Dreamcast",
-        officialDomain = "sega.com",
+        igdbId = 23,
+        screenScraperId = 23,
+        nativeCutoffYear = 1993,
     ),
     NDS(
         id = "nds",
         label = "Nintendo DS",
         shortLabel = "DS",
         thumbnailRepository = "Nintendo_-_Nintendo_DS",
-        officialDomain = "nintendo.com",
+        igdbId = 20,
+        screenScraperId = 15,
+        nativeCutoffYear = 1999,
     ),
     N3DS(
         id = "n3ds",
         label = "Nintendo 3DS",
         shortLabel = "3DS",
         thumbnailRepository = "Nintendo_-_Nintendo_3DS",
-        officialDomain = "nintendo.com",
+        igdbId = 37,
+        screenScraperId = 17,
+        nativeCutoffYear = 2006,
+    ),
+    SWITCH(
+        id = "switch",
+        label = "Nintendo Switch",
+        shortLabel = "Switch",
+        thumbnailRepository = "Nintendo_-_Nintendo_Switch",
+        igdbId = 130,
+        screenScraperId = 225,
+        nativeCutoffYear = 2011,
     );
 
     companion object {
         fun fromId(id: String): Platform = entries.firstOrNull { it.id == id } ?: PS1
+
+        fun fromIgdbIds(ids: List<Int>, preferred: Platform?): Platform? {
+            if (preferred != null && preferred.igdbId in ids) return preferred
+            return entries.firstOrNull { it.igdbId in ids }
+        }
+    }
+}
+
+enum class GameSort(
+    val id: String,
+    val label: String,
+) {
+    NAME_ASC("name_asc", "A – Z"),
+    NAME_DESC("name_desc", "Z – A"),
+    POPULARITY("popularity", "Najpopulárnejšie"),
+    RATING("rating", "Najlepšie hodnotené"),
+    RATING_COUNT("rating_count", "Najviac hodnotené"),
+    NEWEST("newest", "Najnovšie"),
+    OLDEST("oldest", "Najstaršie");
+
+    companion object {
+        fun fromId(id: String): GameSort = entries.firstOrNull { it.id == id } ?: POPULARITY
     }
 }
 
 data class Game(
     val id: String,
+    val igdbId: Int,
     val title: String,
     val platform: Platform,
-    val year: Int,
+    val year: Int?,
     val description: String,
-    val thumbnailName: String,
-) {
-    val coverUrl: String
-        get() {
-            val encodedFileName = Uri.encode("$thumbnailName.png")
-            return "https://raw.githubusercontent.com/libretro-thumbnails/" +
-                "${platform.thumbnailRepository}/master/Named_Boxarts/$encodedFileName"
-        }
-}
+    val coverUrl: String?,
+    val screenshotUrls: List<String> = emptyList(),
+    val previewVideoUrl: String? = null,
+    val youtubeVideoId: String? = null,
+    val genres: List<String> = emptyList(),
+    val developer: String? = null,
+    val publisher: String? = null,
+    val rating: Double? = null,
+    val ratingCount: Int = 0,
+    val region: String = "EU",
+)
