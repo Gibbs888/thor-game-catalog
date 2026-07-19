@@ -74,7 +74,7 @@ private fun DirectVideoPlayer(
     var errorMessage by remember(url) { mutableStateOf<String?>(null) }
     val player = remember(url) {
         val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("ThorGameCatalog/1.4.2")
+            .setUserAgent("ThorGameCatalog/1.4.3")
             .setAllowCrossProtocolRedirects(true)
         val dataSourceFactory = DefaultDataSource.Factory(context, httpFactory)
         ExoPlayer.Builder(context)
