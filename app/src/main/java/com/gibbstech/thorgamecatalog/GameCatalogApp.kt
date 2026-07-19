@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
@@ -47,6 +48,8 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
@@ -95,6 +98,7 @@ import coil.compose.SubcomposeAsyncImage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 private enum class AppScreen {
     CATALOG,
@@ -106,6 +110,7 @@ fun GameCatalogApp() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val apiPreferences = remember { ApiPreferences(context.applicationContext) }
+    val catalogPreferences = remember { CatalogPreferences(context.applicationContext) }
     val websitePreferences = remember {
         PlatformWebsitePreferences(context.applicationContext)
     }
@@ -122,6 +127,8 @@ fun GameCatalogApp() {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedPlatformId by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedPlatform = selectedPlatformId?.let(Platform::fromId)
+    var selectedSortId by rememberSaveable { mutableStateOf(catalogPreferences.loadSort().id) }
+    val selectedSort = GameSort.fromId(selectedSortId)
     var games by remember { mutableStateOf<List<Game>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var isLoadingMore by remember { mutableStateOf(false) }
@@ -129,12 +136,19 @@ fun GameCatalogApp() {
     var catalogError by remember { mutableStateOf<String?>(null) }
     var refreshRequest by remember { mutableIntStateOf(0) }
     var loadMoreRequest by remember { mutableIntStateOf(0) }
+    var showSurprise by rememberSaveable { mutableStateOf(false) }
+    var surpriseGames by remember { mutableStateOf<List<Game>>(emptyList()) }
+    var surpriseHistory by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var surpriseError by remember { mutableStateOf<String?>(null) }
+    var isSurpriseLoading by remember { mutableStateOf(false) }
+    var surpriseRequest by remember { mutableIntStateOf(0) }
 
     val catalogRequestKey = remember(
         apiConfig.igdbClientId,
         apiConfig.igdbClientSecret,
         selectedPlatformId,
         query,
+        selectedSortId,
         refreshRequest,
     ) {
         listOf(
@@ -142,6 +156,7 @@ fun GameCatalogApp() {
             apiConfig.igdbClientSecret.hashCode().toString(),
             selectedPlatformId.orEmpty(),
             query.trim(),
+            selectedSortId,
             refreshRequest.toString(),
         ).joinToString("|")
     }
@@ -163,6 +178,7 @@ fun GameCatalogApp() {
                 platform = selectedPlatform,
                 search = query,
                 offset = 0,
+                sort = selectedSort,
             )
             games = page.distinctBy { it.id }
             hasMore = page.size == IgdbApiClient.PAGE_SIZE
@@ -189,6 +205,7 @@ fun GameCatalogApp() {
                 platform = selectedPlatform,
                 search = query,
                 offset = games.size,
+                sort = selectedSort,
             )
             games = (games + page).distinctBy { it.id }
             hasMore = page.size == IgdbApiClient.PAGE_SIZE
@@ -198,6 +215,38 @@ fun GameCatalogApp() {
             catalogError = error.message ?: "Ďalšie hry sa nepodarilo načítať."
         } finally {
             isLoadingMore = false
+        }
+    }
+
+    LaunchedEffect(
+        surpriseRequest,
+        selectedPlatformId,
+        apiConfig.igdbClientId,
+        apiConfig.igdbClientSecret,
+    ) {
+        if (surpriseRequest == 0 || !apiConfig.isIgdbReady) return@LaunchedEffect
+
+        isSurpriseLoading = true
+        surpriseError = null
+        try {
+            val pickedGames = igdbClient.fetchSurpriseGames(
+                config = apiConfig,
+                platform = selectedPlatform,
+                recentGameIds = surpriseHistory.toSet(),
+            )
+            surpriseGames = pickedGames
+            surpriseHistory = (pickedGames.map { it.igdbId } + surpriseHistory)
+                .distinct()
+                .take(30)
+            if (pickedGames.isEmpty()) {
+                surpriseError = "Pre túto platformu sa nenašli vhodné hry."
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            surpriseError = error.message ?: "Náhodný výber sa nepodarilo načítať."
+        } finally {
+            isSurpriseLoading = false
         }
     }
 
@@ -287,13 +336,27 @@ fun GameCatalogApp() {
                     games = games,
                     query = query,
                     selectedPlatformId = selectedPlatformId,
+                    selectedSort = selectedSort,
                     apiReady = apiConfig.isIgdbReady,
                     isLoading = isLoading,
                     isLoadingMore = isLoadingMore,
                     hasMore = hasMore,
                     error = catalogError,
+                    showSurprise = showSurprise,
+                    surpriseGames = surpriseGames,
+                    isSurpriseLoading = isSurpriseLoading,
+                    surpriseError = surpriseError,
                     onQueryChange = { query = it },
                     onPlatformSelected = { selectedPlatformId = it },
+                    onSortSelected = { sort ->
+                        selectedSortId = sort.id
+                        catalogPreferences.saveSort(sort)
+                    },
+                    onSurprise = {
+                        showSurprise = true
+                        surpriseRequest++
+                    },
+                    onCloseSurprise = { showSurprise = false },
                     onGameSelected = { selectedGame = it },
                     onOpenSettings = { currentScreen = AppScreen.SETTINGS },
                     onRetry = { refreshRequest++ },
@@ -419,13 +482,21 @@ private fun OnlineCatalogScreen(
     games: List<Game>,
     query: String,
     selectedPlatformId: String?,
+    selectedSort: GameSort,
     apiReady: Boolean,
     isLoading: Boolean,
     isLoadingMore: Boolean,
     hasMore: Boolean,
     error: String?,
+    showSurprise: Boolean,
+    surpriseGames: List<Game>,
+    isSurpriseLoading: Boolean,
+    surpriseError: String?,
     onQueryChange: (String) -> Unit,
     onPlatformSelected: (String?) -> Unit,
+    onSortSelected: (GameSort) -> Unit,
+    onSurprise: () -> Unit,
+    onCloseSurprise: () -> Unit,
     onGameSelected: (Game) -> Unit,
     onOpenSettings: () -> Unit,
     onRetry: () -> Unit,
@@ -452,9 +523,25 @@ private fun OnlineCatalogScreen(
             CatalogControls(
                 query = query,
                 selectedPlatformId = selectedPlatformId,
+                selectedSort = selectedSort,
                 onQueryChange = onQueryChange,
                 onPlatformSelected = onPlatformSelected,
+                onSortSelected = onSortSelected,
+                onSurprise = onSurprise,
             )
+        }
+
+        if (showSurprise) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                SurprisePanel(
+                    games = surpriseGames,
+                    isLoading = isSurpriseLoading,
+                    error = surpriseError,
+                    onGameSelected = onGameSelected,
+                    onRefresh = onSurprise,
+                    onClose = onCloseSurprise,
+                )
+            }
         }
 
         items(games, key = { it.id }) { game ->
@@ -479,9 +566,14 @@ private fun OnlineCatalogScreen(
 private fun CatalogControls(
     query: String,
     selectedPlatformId: String?,
+    selectedSort: GameSort,
     onQueryChange: (String) -> Unit,
     onPlatformSelected: (String?) -> Unit,
+    onSortSelected: (GameSort) -> Unit,
+    onSurprise: () -> Unit,
 ) {
+    var sortMenuExpanded by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = query,
@@ -504,6 +596,53 @@ private fun CatalogControls(
             ),
         )
         Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                OutlinedButton(
+                    onClick = { sortMenuExpanded = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.SwapVert, contentDescription = null)
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        text = selectedSort.label,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                DropdownMenu(
+                    expanded = sortMenuExpanded,
+                    onDismissRequest = { sortMenuExpanded = false },
+                ) {
+                    GameSort.entries.forEach { sort ->
+                        DropdownMenuItem(
+                            text = { Text(sort.label) },
+                            leadingIcon = {
+                                if (sort == selectedSort) {
+                                    Icon(Icons.Default.Star, contentDescription = null)
+                                }
+                            },
+                            onClick = {
+                                sortMenuExpanded = false
+                                onSortSelected(sort)
+                            },
+                        )
+                    }
+                }
+            }
+            Button(
+                onClick = onSurprise,
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(Icons.Default.Casino, contentDescription = null)
+                Spacer(Modifier.width(7.dp))
+                Text("Surprise me", maxLines = 1)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 FilterChip(
@@ -524,14 +663,88 @@ private fun CatalogControls(
 }
 
 @Composable
-private fun GameCard(game: Game, onClick: () -> Unit) {
+private fun SurprisePanel(
+    games: List<Game>,
+    isLoading: Boolean,
+    error: String?,
+    onGameSelected: (Game) -> Unit,
+    onRefresh: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer,
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Default.Casino, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = "Surprise me",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black,
+                )
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Default.Close, contentDescription = "Zavrieť náhodný výber")
+                }
+            }
+
+            when {
+                isLoading -> LoadingRow()
+                error != null -> {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = onRefresh) {
+                        Icon(Icons.Default.Refresh, contentDescription = null)
+                        Spacer(Modifier.width(7.dp))
+                        Text("Skúsiť znova")
+                    }
+                }
+                else -> {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(games, key = { "surprise-${it.id}" }) { game ->
+                            GameCard(
+                                game = game,
+                                onClick = { onGameSelected(game) },
+                                modifier = Modifier.width(152.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = onRefresh,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.Casino, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Prekvap ma znova")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameCard(
+    game: Game,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+) {
     var hasFocus by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(18.dp)
 
     ElevatedCard(
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .onFocusChanged { hasFocus = it.hasFocus }
             .border(
                 width = if (hasFocus) 3.dp else 0.dp,
@@ -564,12 +777,26 @@ private fun GameCard(game: Game, onClick: () -> Unit) {
                 lineHeight = 18.sp,
             )
             Spacer(Modifier.height(8.dp))
-            Text(
-                text = "${game.platform.shortLabel}  •  ${game.year ?: "—"}",
-                color = MaterialTheme.colorScheme.secondary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "${game.platform.shortLabel}  •  ${game.year ?: "—"}",
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                )
+                game.rating?.let { rating ->
+                    Text(
+                        text = "★ ${rating.roundToInt()}",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
         }
     }
 }
@@ -655,6 +882,15 @@ private fun GameDetailScreen(
                         color = MaterialTheme.colorScheme.secondary,
                         fontWeight = FontWeight.Bold,
                     )
+                    game.rating?.let { rating ->
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "★ ${rating.roundToInt()}/100  •  ${game.ratingCount} hodnotení",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                        )
+                    }
                     game.developer?.let {
                         Spacer(Modifier.height(10.dp))
                         Text("Vývojár: $it", fontSize = 13.sp)

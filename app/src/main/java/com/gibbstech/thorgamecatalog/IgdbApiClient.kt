@@ -9,10 +9,12 @@ import java.net.URL
 import java.net.URLEncoder
 import java.time.Instant
 import java.time.ZoneOffset
+import kotlin.random.Random
 
 class IgdbApiClient {
     private var cachedAccessToken: String? = null
     private var accessTokenExpiresAtMillis: Long = 0
+    private val popularityIdsCache = mutableMapOf<PopularityCacheKey, List<Int>>()
 
     suspend fun testConnection(config: ApiConfig) = withContext(Dispatchers.IO) {
         cachedAccessToken = null
@@ -24,6 +26,7 @@ class IgdbApiClient {
         platform: Platform?,
         search: String,
         offset: Int,
+        sort: GameSort,
         limit: Int = PAGE_SIZE,
     ): List<Game> = withContext(Dispatchers.IO) {
         require(config.isIgdbReady) { "Najprv nastav IGDB Client ID a Client Secret." }
@@ -34,24 +37,157 @@ class IgdbApiClient {
         val escapedSearch = search.trim()
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
+            .replace("*", "")
+
+        if (sort == GameSort.POPULARITY) {
+            return@withContext fetchPopularGames(
+                config = config,
+                token = token,
+                platform = platform,
+                platformIds = platformIds,
+                escapedSearch = escapedSearch,
+                offset = offset,
+                limit = limit,
+            )
+        }
 
         val query = buildString {
-            append(
-                "fields name,summary,first_release_date,platforms,genres.name," +
-                    "involved_companies.company.name,involved_companies.developer," +
-                    "involved_companies.publisher,cover.image_id,screenshots.image_id," +
-                    "videos.video_id; ",
-            )
-            if (escapedSearch.isNotBlank()) append("search \"").append(escapedSearch).append("\"; ")
-            append("where platforms = (")
-                .append(platformIds.joinToString(","))
-                .append(") & version_parent = null; ")
-            if (escapedSearch.isBlank()) append("sort name asc; ")
+            append(GAME_FIELDS)
+            append("where ")
+                .append(gameFilter(platformIds, sort, escapedSearch))
+                .append("; ")
+            append("sort ").append(sort.apiSort).append("; ")
             append("limit ").append(limit).append("; offset ").append(offset).append(";")
         }
 
+        val response = igdbRequest(config, token, GAMES_URL, query)
+
+        parseGames(JSONArray(response.body), platform)
+    }
+
+    suspend fun fetchSurpriseGames(
+        config: ApiConfig,
+        platform: Platform?,
+        recentGameIds: Set<Int>,
+        count: Int = SURPRISE_COUNT,
+    ): List<Game> = withContext(Dispatchers.IO) {
+        require(config.isIgdbReady) { "Najprv nastav IGDB Client ID a Client Secret." }
+
+        val token = accessToken(config)
+        val platformIds = platform?.let { listOf(it.igdbId) }
+            ?: Platform.entries.map { it.igdbId }
+        val filter = gameFilter(platformIds) +
+            " & cover != null & total_rating_count >= $MIN_SURPRISE_RATING_COUNT"
+        val countResponse = igdbRequest(
+            config = config,
+            token = token,
+            url = GAMES_COUNT_URL,
+            body = "where $filter;",
+        )
+        val available = JSONObject(countResponse.body).optInt("count", 0)
+        if (available == 0) return@withContext emptyList()
+
+        val poolSize = minOf(SURPRISE_POOL_SIZE, available)
+        val maxOffset = (available - poolSize).coerceAtLeast(0)
+        val randomOffset = if (maxOffset == 0) 0 else Random.nextInt(maxOffset + 1)
+        val query = buildString {
+            append(GAME_FIELDS)
+            append("where ").append(filter).append("; ")
+            append("sort name asc; limit ").append(poolSize)
+            append("; offset ").append(randomOffset).append(";")
+        }
+        val response = igdbRequest(config, token, GAMES_URL, query)
+        selectSurpriseGames(
+            candidates = parseGames(JSONArray(response.body), platform),
+            recentGameIds = recentGameIds,
+            preferDifferentPlatforms = platform == null,
+            count = count,
+        )
+    }
+
+    private fun fetchPopularGames(
+        config: ApiConfig,
+        token: String,
+        platform: Platform?,
+        platformIds: List<Int>,
+        escapedSearch: String,
+        offset: Int,
+        limit: Int,
+    ): List<Game> {
+        val cacheKey = PopularityCacheKey(
+            clientId = config.igdbClientId.trim(),
+            platformIds = platformIds,
+            search = escapedSearch,
+        )
+        val orderedIds = popularityIdsCache[cacheKey] ?: loadPopularityIds(
+            config = config,
+            token = token,
+            platformIds = platformIds,
+            escapedSearch = escapedSearch,
+        ).also { popularityIdsCache[cacheKey] = it }
+
+        val pageIds = orderedIds.drop(offset).take(limit)
+        if (pageIds.isEmpty()) return emptyList()
+
+        val query = buildString {
+            append(GAME_FIELDS)
+            append("where id = (").append(pageIds.joinToString(",")).append("); ")
+            append("limit ").append(pageIds.size).append(";")
+        }
+        val response = igdbRequest(config, token, GAMES_URL, query)
+        val gamesById = parseGames(JSONArray(response.body), platform).associateBy { it.igdbId }
+        return pageIds.mapNotNull(gamesById::get)
+    }
+
+    private fun loadPopularityIds(
+        config: ApiConfig,
+        token: String,
+        platformIds: List<Int>,
+        escapedSearch: String,
+    ): List<Int> {
+        val candidatesQuery = buildString {
+            append("fields id,total_rating_count; ")
+            append("where ").append(gameFilter(platformIds, search = escapedSearch)).append("; ")
+            append("sort total_rating_count desc; ")
+            append("limit ").append(POPULARITY_CANDIDATE_LIMIT).append(";")
+        }
+        val candidatesResponse = igdbRequest(config, token, GAMES_URL, candidatesQuery)
+        val candidates = JSONArray(candidatesResponse.body).toObjectList()
+            .mapNotNull { item ->
+                item.optInt("id", -1).takeIf { it >= 0 }?.let {
+                    PopularityCandidate(it, item.optInt("total_rating_count", 0))
+                }
+            }
+        if (candidates.isEmpty()) return emptyList()
+
+        val popularityQuery = buildString {
+            append("fields game_id,value; where popularity_type = 1 & game_id = (")
+            append(candidates.joinToString(",") { it.gameId.toString() })
+            append("); sort value desc; limit ").append(POPULARITY_CANDIDATE_LIMIT).append(";")
+        }
+        val popularityResponse = igdbRequest(
+            config,
+            token,
+            POPULARITY_PRIMITIVES_URL,
+            popularityQuery,
+        )
+        val popularityByGame = JSONArray(popularityResponse.body).toObjectList()
+            .associate { it.optInt("game_id") to it.optDouble("value", 0.0) }
+
+        return candidates.sortedWith(
+            compareByDescending<PopularityCandidate> { popularityByGame[it.gameId] ?: -1.0 }
+                .thenByDescending { it.ratingCount },
+        ).map { it.gameId }
+    }
+
+    private fun igdbRequest(
+        config: ApiConfig,
+        token: String,
+        url: String,
+        body: String,
+    ): HttpResponse {
         val response = request(
-            url = GAMES_URL,
+            url = url,
             method = "POST",
             headers = mapOf(
                 "Client-ID" to config.igdbClientId.trim(),
@@ -59,16 +195,16 @@ class IgdbApiClient {
                 "Accept" to "application/json",
                 "Content-Type" to "text/plain",
             ),
-            body = query,
+            body = body,
         )
 
         if (response.code == HttpURLConnection.HTTP_UNAUTHORIZED) {
             cachedAccessToken = null
+            popularityIdsCache.clear()
             throw ApiException("IGDB prihlásenie vypršalo. Skús načítať katalóg znova.")
         }
         if (response.code !in 200..299) throw ApiException(errorMessage("IGDB", response))
-
-        parseGames(JSONArray(response.body), platform)
+        return response
     }
 
     private fun accessToken(config: ApiConfig): String {
@@ -136,6 +272,8 @@ class IgdbApiClient {
                     genres = genres,
                     developer = developer,
                     publisher = publisher,
+                    rating = item.optDouble("total_rating").takeIf { !it.isNaN() && it > 0 },
+                    ratingCount = item.optInt("total_rating_count", 0),
                 ),
             )
         }
@@ -159,9 +297,83 @@ class IgdbApiClient {
 
     companion object {
         const val PAGE_SIZE = 30
+        const val SURPRISE_COUNT = 3
+        private const val MIN_SURPRISE_RATING_COUNT = 5
+        private const val SURPRISE_POOL_SIZE = 30
+        private const val POPULARITY_CANDIDATE_LIMIT = 500
         private const val TOKEN_URL = "https://id.twitch.tv/oauth2/token"
         private const val GAMES_URL = "https://api.igdb.com/v4/games"
+        private const val GAMES_COUNT_URL = "https://api.igdb.com/v4/games/count"
+        private const val POPULARITY_PRIMITIVES_URL =
+            "https://api.igdb.com/v4/popularity_primitives"
+        private const val GAME_FIELDS =
+            "fields name,summary,first_release_date,platforms,genres.name," +
+                "involved_companies.company.name,involved_companies.developer," +
+                "involved_companies.publisher,cover.image_id,screenshots.image_id," +
+                "videos.video_id,total_rating,total_rating_count; "
     }
+}
+
+private data class PopularityCacheKey(
+    val clientId: String,
+    val platformIds: List<Int>,
+    val search: String,
+)
+
+private data class PopularityCandidate(
+    val gameId: Int,
+    val ratingCount: Int,
+)
+
+private val GameSort.apiSort: String
+    get() = when (this) {
+        GameSort.NAME_ASC -> "name asc"
+        GameSort.NAME_DESC -> "name desc"
+        GameSort.POPULARITY -> "total_rating_count desc"
+        GameSort.RATING -> "total_rating desc"
+        GameSort.RATING_COUNT -> "total_rating_count desc"
+        GameSort.NEWEST -> "first_release_date desc"
+        GameSort.OLDEST -> "first_release_date asc"
+    }
+
+private fun gameFilter(
+    platformIds: List<Int>,
+    sort: GameSort? = null,
+    search: String = "",
+): String = buildString {
+    append("platforms = (").append(platformIds.joinToString(",")).append(")")
+    append(" & version_parent = null")
+    when (sort) {
+        GameSort.RATING -> append(" & total_rating_count >= ").append(10)
+        GameSort.RATING_COUNT -> append(" & total_rating_count != null")
+        GameSort.NEWEST, GameSort.OLDEST -> append(" & first_release_date != null")
+        else -> Unit
+    }
+    if (search.isNotBlank()) append(" & name ~ *\"").append(search).append("\"*")
+}
+
+internal fun selectSurpriseGames(
+    candidates: List<Game>,
+    recentGameIds: Set<Int>,
+    preferDifferentPlatforms: Boolean,
+    count: Int = IgdbApiClient.SURPRISE_COUNT,
+    random: Random = Random.Default,
+): List<Game> {
+    if (count <= 0) return emptyList()
+    val shuffled = candidates.distinctBy { it.igdbId }.shuffled(random)
+    val fresh = shuffled.filterNot { it.igdbId in recentGameIds }
+    val preferredPool = fresh.takeIf { it.size >= count } ?: shuffled
+    if (!preferDifferentPlatforms) return preferredPool.take(count)
+
+    val result = mutableListOf<Game>()
+    val usedPlatforms = mutableSetOf<Platform>()
+    preferredPool.forEach { game ->
+        if (result.size < count && usedPlatforms.add(game.platform)) result += game
+    }
+    preferredPool.forEach { game ->
+        if (result.size < count && game !in result) result += game
+    }
+    return result
 }
 
 internal data class HttpResponse(val code: Int, val body: String)

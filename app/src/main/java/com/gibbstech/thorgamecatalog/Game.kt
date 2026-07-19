@@ -83,6 +83,23 @@ enum class Platform(
     }
 }
 
+enum class GameSort(
+    val id: String,
+    val label: String,
+) {
+    NAME_ASC("name_asc", "A – Z"),
+    NAME_DESC("name_desc", "Z – A"),
+    POPULARITY("popularity", "Najpopulárnejšie"),
+    RATING("rating", "Najlepšie hodnotené"),
+    RATING_COUNT("rating_count", "Najviac hodnotené"),
+    NEWEST("newest", "Najnovšie"),
+    OLDEST("oldest", "Najstaršie");
+
+    companion object {
+        fun fromId(id: String): GameSort = entries.firstOrNull { it.id == id } ?: POPULARITY
+    }
+}
+
 data class Game(
     val id: String,
     val igdbId: Int,
@@ -97,5 +114,7 @@ data class Game(
     val genres: List<String> = emptyList(),
     val developer: String? = null,
     val publisher: String? = null,
+    val rating: Double? = null,
+    val ratingCount: Int = 0,
     val region: String = "EU",
 )

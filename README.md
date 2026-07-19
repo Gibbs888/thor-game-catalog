@@ -11,6 +11,9 @@ hier ako moderný obchod, ale neobsahuje ani nesťahuje ROM/ISO súbory.
 - ovládanie dotykom, D-padom, tlačidlom A/B a analógovou páčkou
 - vyhľadávanie podľa názvu alebo konzoly
 - filtre platforiem, ktoré odrolujú spolu s katalógom
+- zoradenie A–Z, Z–A, podľa IGDB popularity, hodnotenia, počtu hodnotení a dátumu
+- hodnotenie hry priamo na karte aj v detaile
+- **Surprise me** s tromi náhodnými hrami podľa vybranej platformy
 - obaly, screenshoty a metadáta načítavané z internetu
 - voliteľné retro gameplay videá a médiá zo ScreenScraper
 - kompaktné menu Katalóg/Nastavenia vpravo hore
@@ -22,6 +25,10 @@ V časti **Nastavenia** sa dá pre každú konzolu zadať samostatná HTTP alebo
 adresa. Napríklad `https://example.com/search?q={title}` doplní do odkazu názov
 otvorenej hry. Adresa bez premennej sa otvorí presne tak, ako bola zadaná.
 Aplikácia nemá žiadny prednastavený externý herný web ani lokálny zoznam hier.
+
+Zvolené zoradenie si aplikácia zapamätá. Režim **Surprise me** vyberá tri hry
+s obalom a dostatočným počtom hodnotení, pričom pri zobrazení všetkých platforiem
+uprednostní rozdielne konzoly a neopakuje bezprostredne predchádzajúci výber.
 
 ## Online API
 
