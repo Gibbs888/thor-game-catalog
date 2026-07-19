@@ -18,11 +18,13 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -31,9 +33,13 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.RestartAlt
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -45,15 +51,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,21 +73,33 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 
 private const val ALL_PLATFORMS = "all"
 
+private enum class AppSection {
+    CATALOG,
+    SETTINGS,
+}
+
 @Composable
 fun GameCatalogApp() {
     val context = LocalContext.current
     val games = remember { GameRepository.load(context) }
+    val websitePreferences = remember {
+        PlatformWebsitePreferences(context.applicationContext)
+    }
     var query by remember { mutableStateOf("") }
     var selectedPlatform by remember { mutableStateOf(ALL_PLATFORMS) }
     var selectedGame by remember { mutableStateOf<Game?>(null) }
+    var selectedSection by rememberSaveable { mutableStateOf(AppSection.CATALOG) }
+    var platformWebsites by remember { mutableStateOf(websitePreferences.load()) }
 
     val filteredGames = remember(games, query, selectedPlatform) {
         games.filter { game ->
@@ -88,56 +111,151 @@ fun GameCatalogApp() {
         }
     }
 
-    Surface(
+    Scaffold(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = selectedSection == AppSection.CATALOG,
+                    onClick = {
+                        selectedGame = null
+                        selectedSection = AppSection.CATALOG
+                    },
+                    icon = { Icon(Icons.Default.Home, contentDescription = null) },
+                    label = { Text("Katalóg") },
+                )
+                NavigationBarItem(
+                    selected = selectedSection == AppSection.SETTINGS,
+                    onClick = {
+                        selectedGame = null
+                        selectedSection = AppSection.SETTINGS
+                    },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null) },
+                    label = { Text("Nastavenia") },
+                )
+            }
+        },
     ) {
-        Column(
+        Surface(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+                .padding(it),
+            color = MaterialTheme.colorScheme.background,
         ) {
-            CatalogHeader(
-                gameCount = filteredGames.size,
-                query = query,
-                onQueryChange = { query = it },
-            )
+            when (selectedSection) {
+                AppSection.CATALOG -> CatalogScreen(
+                    games = filteredGames,
+                    query = query,
+                    selectedPlatform = selectedPlatform,
+                    onQueryChange = { query = it },
+                    onPlatformSelected = { selectedPlatform = it },
+                    onGameSelected = { selectedGame = it },
+                )
 
-            PlatformFilters(
-                selectedPlatform = selectedPlatform,
-                onPlatformSelected = { selectedPlatform = it },
-            )
-
-            if (filteredGames.isEmpty()) {
-                EmptyCatalog(modifier = Modifier.weight(1f))
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 148.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        start = 14.dp,
-                        top = 10.dp,
-                        end = 14.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 20.dp,
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    items(filteredGames, key = { it.id }) { game ->
-                        GameCard(game = game, onClick = { selectedGame = game })
-                    }
-                }
+                AppSection.SETTINGS -> PlatformWebsiteSettings(
+                    platformWebsites = platformWebsites,
+                    onSave = { platform, template ->
+                        websitePreferences.save(platform, template)
+                        platformWebsites = platformWebsites + (platform to template.trim())
+                        Toast.makeText(
+                            context,
+                            "Odkaz pre ${platform.shortLabel} bol uložený.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    onReset = { platform ->
+                        websitePreferences.save(platform, "")
+                        platformWebsites = platformWebsites + (platform to "")
+                        Toast.makeText(
+                            context,
+                            "Odkaz pre ${platform.shortLabel} bol odstránený.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                    onTest = { platform, template ->
+                        val testGame = Game(
+                            id = "test-${platform.id}",
+                            title = "Ukážková hra",
+                            platform = platform,
+                            year = 2000,
+                            description = "",
+                            thumbnailName = "",
+                            region = "EU",
+                        )
+                        buildWebsiteUrl(template, testGame)?.let { url ->
+                            openUrl(context, url)
+                        }
+                    },
+                )
             }
         }
     }
 
     selectedGame?.let { game ->
+        val preferredWebsiteTemplate = platformWebsites[game.platform].orEmpty()
         GameDetailSheet(
             game = game,
             onDismiss = { selectedGame = null },
-            onOpenOfficialSearch = { openUrl(context, officialSearchUrl(game)) },
-            onOpenInformation = { openUrl(context, informationUrl(game)) },
+            hasPreferredWebsite = preferredWebsiteTemplate.isNotBlank(),
+            onOpenPreferredWebsite = {
+                buildWebsiteUrl(preferredWebsiteTemplate, game)?.let { url ->
+                    openUrl(context, url)
+                }
+            },
+            onConfigureWebsite = {
+                selectedGame = null
+                selectedSection = AppSection.SETTINGS
+            },
         )
+    }
+}
+
+@Composable
+private fun CatalogScreen(
+    games: List<Game>,
+    query: String,
+    selectedPlatform: String,
+    onQueryChange: (String) -> Unit,
+    onPlatformSelected: (String) -> Unit,
+    onGameSelected: (Game) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+    ) {
+        CatalogHeader(
+            gameCount = games.size,
+            query = query,
+            onQueryChange = onQueryChange,
+        )
+
+        PlatformFilters(
+            selectedPlatform = selectedPlatform,
+            onPlatformSelected = onPlatformSelected,
+        )
+
+        if (games.isEmpty()) {
+            EmptyCatalog(modifier = Modifier.weight(1f))
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 148.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    start = 14.dp,
+                    top = 10.dp,
+                    end = 14.dp,
+                    bottom = 20.dp,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                items(games, key = { it.id }) { game ->
+                    GameCard(game = game, onClick = { onGameSelected(game) })
+                }
+            }
+        }
     }
 }
 
@@ -178,7 +296,7 @@ private fun CatalogHeader(
                     fontWeight = FontWeight.Black,
                 )
                 Text(
-                    text = "$gameCount hier • oficiálne a informačné odkazy",
+                    text = "$gameCount hier • vlastné odkazy podľa platformy",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                 )
@@ -342,11 +460,209 @@ private fun EmptyCatalog(modifier: Modifier = Modifier) {
 }
 
 @Composable
+private fun PlatformWebsiteSettings(
+    platformWebsites: Map<Platform, String>,
+    onSave: (Platform, String) -> Unit,
+    onReset: (Platform) -> Unit,
+    onTest: (Platform, String) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = 16.dp,
+            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 16.dp,
+            end = 16.dp,
+            bottom = 24.dp,
+        ),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Color(0xFF7C5CFC), Color(0xFF2EE6A6)),
+                            ),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = null,
+                        tint = Color.White,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Nastavenia",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        text = "Platformy a preferované stránky",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+        }
+
+        item {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Vlastná stránka pre každú konzolu",
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Do adresy môžeš vložiť {title}, {platform}, {region} alebo {year}. " +
+                            "Ak nepoužiješ žiadnu premennú, otvorí sa presne zadaná stránka.",
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                    )
+                }
+            }
+        }
+
+        items(Platform.entries, key = { it.id }) { platform ->
+            PlatformWebsiteCard(
+                platform = platform,
+                savedTemplate = platformWebsites[platform].orEmpty(),
+                onSave = { onSave(platform, it) },
+                onReset = { onReset(platform) },
+                onTest = { onTest(platform, it) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlatformWebsiteCard(
+    platform: Platform,
+    savedTemplate: String,
+    onSave: (String) -> Unit,
+    onReset: () -> Unit,
+    onTest: (String) -> Unit,
+) {
+    var draft by remember(platform, savedTemplate) { mutableStateOf(savedTemplate) }
+    val trimmedDraft = draft.trim()
+    val isValid = isValidWebsiteTemplate(trimmedDraft)
+    val hasChanges = trimmedDraft != savedTemplate
+
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Link,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.secondary,
+                )
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(platform.label, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = platform.shortLabel,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                    )
+                }
+                Text(
+                    text = if (savedTemplate.isBlank()) "Nenastavené" else "Nastavené",
+                    color = if (savedTemplate.isBlank()) {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.secondary
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = draft,
+                onValueChange = { draft = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Preferovaná URL") },
+                placeholder = { Text("https://example.com/search?q={title}") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                isError = trimmedDraft.isNotEmpty() && !isValid,
+                supportingText = {
+                    when {
+                        trimmedDraft.isEmpty() -> Text("Zadaj celú adresu začínajúcu https://")
+                        !isValid -> Text("Adresa musí byť platná HTTP alebo HTTPS URL.")
+                        else -> Text("Ukážka doplní premenné testovacími údajmi.")
+                    }
+                },
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Button(
+                    onClick = { onSave(trimmedDraft) },
+                    enabled = isValid && hasChanges,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Default.Save, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Uložiť")
+                }
+
+                OutlinedButton(
+                    onClick = { onTest(trimmedDraft) },
+                    enabled = isValid,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Otestovať")
+                }
+
+                TextButton(
+                    onClick = {
+                        draft = ""
+                        onReset()
+                    },
+                    enabled = savedTemplate.isNotBlank(),
+                ) {
+                    Icon(Icons.Default.RestartAlt, contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Odstrániť")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun GameDetailSheet(
     game: Game,
     onDismiss: () -> Unit,
-    onOpenOfficialSearch: () -> Unit,
-    onOpenInformation: () -> Unit,
+    hasPreferredWebsite: Boolean,
+    onOpenPreferredWebsite: () -> Unit,
+    onConfigureWebsite: () -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -390,23 +706,27 @@ private fun GameDetailSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            Button(
-                onClick = onOpenOfficialSearch,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            ) {
-                Icon(Icons.Default.OpenInNew, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Vyhľadať na oficiálnom webe")
-            }
-
-            OutlinedButton(
-                onClick = onOpenInformation,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Icon(Icons.Default.Info, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Informácie o hre")
+            if (hasPreferredWebsite) {
+                Button(
+                    onClick = onOpenPreferredWebsite,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                    ),
+                ) {
+                    Icon(Icons.Default.OpenInNew, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Otvoriť preferovanú stránku")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = onConfigureWebsite,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Nastaviť stránku pre ${game.platform.shortLabel}")
+                }
             }
 
             Text(
@@ -419,16 +739,6 @@ private fun GameDetailSheet(
             )
         }
     }
-}
-
-private fun officialSearchUrl(game: Game): String {
-    val query = "site:${game.platform.officialDomain} \"${game.title}\" ${game.platform.label}"
-    return "https://www.google.com/search?q=${Uri.encode(query)}"
-}
-
-private fun informationUrl(game: Game): String {
-    val query = "${game.title} ${game.platform.label}"
-    return "https://en.wikipedia.org/wiki/Special:Search?search=${Uri.encode(query)}"
 }
 
 private fun openUrl(context: Context, url: String) {
