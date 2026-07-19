@@ -16,7 +16,14 @@ class CatalogPreferences(context: Context) {
         preferences.edit().putString(KEY_SORT, sort.id).apply()
     }
 
+    fun loadNativeOnly(): Boolean = preferences.getBoolean(KEY_NATIVE_ONLY, true)
+
+    fun saveNativeOnly(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_NATIVE_ONLY, enabled).apply()
+    }
+
     private companion object {
         const val KEY_SORT = "game_sort"
+        const val KEY_NATIVE_ONLY = "native_only"
     }
 }

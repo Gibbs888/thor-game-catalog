@@ -8,6 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.random.Random
 
@@ -27,6 +28,7 @@ class IgdbApiClient {
         search: String,
         offset: Int,
         sort: GameSort,
+        nativeOnly: Boolean,
         limit: Int = PAGE_SIZE,
     ): List<Game> = withContext(Dispatchers.IO) {
         require(config.isIgdbReady) { "Najprv nastav IGDB Client ID a Client Secret." }
@@ -48,13 +50,14 @@ class IgdbApiClient {
                 escapedSearch = escapedSearch,
                 offset = offset,
                 limit = limit,
+                nativeOnly = nativeOnly,
             )
         }
 
         val query = buildString {
             append(GAME_FIELDS)
             append("where ")
-                .append(gameFilter(platformIds, sort, escapedSearch))
+                .append(gameFilter(platformIds, sort, escapedSearch, nativeOnly))
                 .append("; ")
             append("sort ").append(sort.apiSort).append("; ")
             append("limit ").append(limit).append("; offset ").append(offset).append(";")
@@ -69,6 +72,7 @@ class IgdbApiClient {
         config: ApiConfig,
         platform: Platform?,
         recentGameIds: Set<Int>,
+        nativeOnly: Boolean,
         count: Int = SURPRISE_COUNT,
     ): List<Game> = withContext(Dispatchers.IO) {
         require(config.isIgdbReady) { "Najprv nastav IGDB Client ID a Client Secret." }
@@ -76,7 +80,7 @@ class IgdbApiClient {
         val token = accessToken(config)
         val platformIds = platform?.let { listOf(it.igdbId) }
             ?: Platform.entries.map { it.igdbId }
-        val filter = gameFilter(platformIds) +
+        val filter = gameFilter(platformIds, nativeOnly = nativeOnly) +
             " & cover != null & total_rating_count >= $MIN_SURPRISE_RATING_COUNT"
         val countResponse = igdbRequest(
             config = config,
@@ -113,17 +117,20 @@ class IgdbApiClient {
         escapedSearch: String,
         offset: Int,
         limit: Int,
+        nativeOnly: Boolean,
     ): List<Game> {
         val cacheKey = PopularityCacheKey(
             clientId = config.igdbClientId.trim(),
             platformIds = platformIds,
             search = escapedSearch,
+            nativeOnly = nativeOnly,
         )
         val orderedIds = popularityIdsCache[cacheKey] ?: loadPopularityIds(
             config = config,
             token = token,
             platformIds = platformIds,
             escapedSearch = escapedSearch,
+            nativeOnly = nativeOnly,
         ).also { popularityIdsCache[cacheKey] = it }
 
         val pageIds = orderedIds.drop(offset).take(limit)
@@ -144,10 +151,17 @@ class IgdbApiClient {
         token: String,
         platformIds: List<Int>,
         escapedSearch: String,
+        nativeOnly: Boolean,
     ): List<Int> {
         val candidatesQuery = buildString {
             append("fields id,total_rating_count; ")
-            append("where ").append(gameFilter(platformIds, search = escapedSearch)).append("; ")
+            append("where ").append(
+                gameFilter(
+                    platformIds = platformIds,
+                    search = escapedSearch,
+                    nativeOnly = nativeOnly,
+                ),
+            ).append("; ")
             append("sort total_rating_count desc; ")
             append("limit ").append(POPULARITY_CANDIDATE_LIMIT).append(";")
         }
@@ -318,6 +332,7 @@ private data class PopularityCacheKey(
     val clientId: String,
     val platformIds: List<Int>,
     val search: String,
+    val nativeOnly: Boolean,
 )
 
 private data class PopularityCandidate(
@@ -336,12 +351,22 @@ private val GameSort.apiSort: String
         GameSort.OLDEST -> "first_release_date asc"
     }
 
-private fun gameFilter(
+internal fun gameFilter(
     platformIds: List<Int>,
     sort: GameSort? = null,
     search: String = "",
+    nativeOnly: Boolean = false,
 ): String = buildString {
-    append("platforms = (").append(platformIds.joinToString(",")).append(")")
+    if (nativeOnly) {
+        val platforms = Platform.entries.filter { it.igdbId in platformIds }
+        append(
+            platforms.joinToString(prefix = "(", postfix = ")", separator = " | ") {
+                nativePlatformCondition(it)
+            },
+        )
+    } else {
+        append("platforms = (").append(platformIds.joinToString(",")).append(")")
+    }
     append(" & version_parent = null")
     when (sort) {
         GameSort.RATING -> append(" & total_rating_count >= ").append(10)
@@ -350,6 +375,13 @@ private fun gameFilter(
         else -> Unit
     }
     if (search.isNotBlank()) append(" & name ~ *\"").append(search).append("\"*")
+}
+
+internal fun nativePlatformCondition(platform: Platform): String {
+    val cutoff = LocalDate.of(platform.nativeCutoffYear, 1, 1)
+        .atStartOfDay(ZoneOffset.UTC)
+        .toEpochSecond()
+    return "(platforms = ${platform.igdbId} & first_release_date >= $cutoff)"
 }
 
 internal fun selectSurpriseGames(

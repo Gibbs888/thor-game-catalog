@@ -6,15 +6,19 @@ hier ako moderný obchod, ale neobsahuje ani nesťahuje ROM/ISO súbory.
 ## Čo aplikácia obsahuje
 
 - online katalóg načítavaný po 30 hrách z IGDB
-- PlayStation 1, PlayStation 2, PSP, GameCube, Wii, Dreamcast, Nintendo DS a 3DS
+- PlayStation 1, PlayStation 2, PSP, GameCube, Wii, Dreamcast, Nintendo DS, 3DS
+  a Nintendo Switch
 - adaptívnu mriežku vhodnú na výšku aj na šírku
 - ovládanie dotykom, D-padom, tlačidlom A/B a analógovou páčkou
 - vyhľadávanie podľa názvu alebo konzoly
 - filtre platforiem, ktoré odrolujú spolu s katalógom
+- zapamätaný filter **Iba natívne hry**, ktorý skryje staré kompatibilné a
+  Virtual Console tituly
 - zoradenie A–Z, Z–A, podľa IGDB popularity, hodnotenia, počtu hodnotení a dátumu
 - hodnotenie hry priamo na karte aj v detaile
 - **Surprise me** s tromi náhodnými hrami podľa vybranej platformy
 - obaly, screenshoty a metadáta načítavané z internetu
+- celoobrazovkovú galériu screenshotov s dotykovým gestom, zoomom a D-padom
 - voliteľné retro gameplay videá a médiá zo ScreenScraper
 - kompaktné menu Katalóg/Nastavenia vpravo hore
 - vlastnú preferovanú webovú stránku pre každú platformu
@@ -26,7 +30,8 @@ adresa. Napríklad `https://example.com/search?q={title}` doplní do odkazu náz
 otvorenej hry. Adresa bez premennej sa otvorí presne tak, ako bola zadaná.
 Aplikácia nemá žiadny prednastavený externý herný web ani lokálny zoznam hier.
 
-Zvolené zoradenie si aplikácia zapamätá. Režim **Surprise me** vyberá tri hry
+Zvolené zoradenie aj filter natívnych hier si aplikácia zapamätá. Režim
+**Surprise me** vyberá tri hry
 s obalom a dostatočným počtom hodnotení, pričom pri zobrazení všetkých platforiem
 uprednostní rozdielne konzoly a neopakuje bezprostredne predchádzajúci výber.
 

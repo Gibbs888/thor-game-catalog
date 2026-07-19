@@ -10,6 +10,11 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +32,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -38,6 +45,8 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.OpenInNew
@@ -53,6 +62,7 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +84,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,17 +94,31 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import coil.compose.SubcomposeAsyncImage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -129,6 +154,7 @@ fun GameCatalogApp() {
     val selectedPlatform = selectedPlatformId?.let(Platform::fromId)
     var selectedSortId by rememberSaveable { mutableStateOf(catalogPreferences.loadSort().id) }
     val selectedSort = GameSort.fromId(selectedSortId)
+    var nativeOnly by rememberSaveable { mutableStateOf(catalogPreferences.loadNativeOnly()) }
     var games by remember { mutableStateOf<List<Game>>(emptyList()) }
     var isLoading by remember { mutableStateOf(false) }
     var isLoadingMore by remember { mutableStateOf(false) }
@@ -149,6 +175,7 @@ fun GameCatalogApp() {
         selectedPlatformId,
         query,
         selectedSortId,
+        nativeOnly,
         refreshRequest,
     ) {
         listOf(
@@ -157,6 +184,7 @@ fun GameCatalogApp() {
             selectedPlatformId.orEmpty(),
             query.trim(),
             selectedSortId,
+            nativeOnly.toString(),
             refreshRequest.toString(),
         ).joinToString("|")
     }
@@ -179,6 +207,7 @@ fun GameCatalogApp() {
                 search = query,
                 offset = 0,
                 sort = selectedSort,
+                nativeOnly = nativeOnly,
             )
             games = page.distinctBy { it.id }
             hasMore = page.size == IgdbApiClient.PAGE_SIZE
@@ -206,6 +235,7 @@ fun GameCatalogApp() {
                 search = query,
                 offset = games.size,
                 sort = selectedSort,
+                nativeOnly = nativeOnly,
             )
             games = (games + page).distinctBy { it.id }
             hasMore = page.size == IgdbApiClient.PAGE_SIZE
@@ -221,6 +251,7 @@ fun GameCatalogApp() {
     LaunchedEffect(
         surpriseRequest,
         selectedPlatformId,
+        nativeOnly,
         apiConfig.igdbClientId,
         apiConfig.igdbClientSecret,
     ) {
@@ -233,6 +264,7 @@ fun GameCatalogApp() {
                 config = apiConfig,
                 platform = selectedPlatform,
                 recentGameIds = surpriseHistory.toSet(),
+                nativeOnly = nativeOnly,
             )
             surpriseGames = pickedGames
             surpriseHistory = (pickedGames.map { it.igdbId } + surpriseHistory)
@@ -337,6 +369,7 @@ fun GameCatalogApp() {
                     query = query,
                     selectedPlatformId = selectedPlatformId,
                     selectedSort = selectedSort,
+                    nativeOnly = nativeOnly,
                     apiReady = apiConfig.isIgdbReady,
                     isLoading = isLoading,
                     isLoadingMore = isLoadingMore,
@@ -351,6 +384,10 @@ fun GameCatalogApp() {
                     onSortSelected = { sort ->
                         selectedSortId = sort.id
                         catalogPreferences.saveSort(sort)
+                    },
+                    onNativeOnlyChange = { enabled ->
+                        nativeOnly = enabled
+                        catalogPreferences.saveNativeOnly(enabled)
                     },
                     onSurprise = {
                         showSurprise = true
@@ -483,6 +520,7 @@ private fun OnlineCatalogScreen(
     query: String,
     selectedPlatformId: String?,
     selectedSort: GameSort,
+    nativeOnly: Boolean,
     apiReady: Boolean,
     isLoading: Boolean,
     isLoadingMore: Boolean,
@@ -495,6 +533,7 @@ private fun OnlineCatalogScreen(
     onQueryChange: (String) -> Unit,
     onPlatformSelected: (String?) -> Unit,
     onSortSelected: (GameSort) -> Unit,
+    onNativeOnlyChange: (Boolean) -> Unit,
     onSurprise: () -> Unit,
     onCloseSurprise: () -> Unit,
     onGameSelected: (Game) -> Unit,
@@ -524,9 +563,11 @@ private fun OnlineCatalogScreen(
                 query = query,
                 selectedPlatformId = selectedPlatformId,
                 selectedSort = selectedSort,
+                nativeOnly = nativeOnly,
                 onQueryChange = onQueryChange,
                 onPlatformSelected = onPlatformSelected,
                 onSortSelected = onSortSelected,
+                onNativeOnlyChange = onNativeOnlyChange,
                 onSurprise = onSurprise,
             )
         }
@@ -567,9 +608,11 @@ private fun CatalogControls(
     query: String,
     selectedPlatformId: String?,
     selectedSort: GameSort,
+    nativeOnly: Boolean,
     onQueryChange: (String) -> Unit,
     onPlatformSelected: (String?) -> Unit,
     onSortSelected: (GameSort) -> Unit,
+    onNativeOnlyChange: (Boolean) -> Unit,
     onSurprise: () -> Unit,
 ) {
     var sortMenuExpanded by remember { mutableStateOf(false) }
@@ -656,6 +699,29 @@ private fun CatalogControls(
                     selected = selectedPlatformId == platform.id,
                     onClick = { onPlatformSelected(platform.id) },
                     label = { Text(platform.shortLabel) },
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onNativeOnlyChange(!nativeOnly) }
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = nativeOnly,
+                onCheckedChange = null,
+            )
+            Spacer(Modifier.width(4.dp))
+            Column {
+                Text("Iba natívne hry", fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Skryje staré kompatibilné a Virtual Console tituly",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
                 )
             }
         }
@@ -849,6 +915,7 @@ private fun GameDetailScreen(
     onConfigureWebsite: () -> Unit,
 ) {
     var showVideo by remember(game.id) { mutableStateOf(false) }
+    var selectedScreenshotIndex by remember(game.id) { mutableStateOf<Int?>(null) }
     val hasVideo = !game.previewVideoUrl.isNullOrBlank() || !game.youtubeVideoId.isNullOrBlank()
 
     LazyColumn(
@@ -926,17 +993,16 @@ private fun GameDetailScreen(
                     )
                     Spacer(Modifier.height(10.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(game.screenshotUrls, key = { it }) { url ->
-                            SubcomposeAsyncImage(
-                                model = url,
-                                contentDescription = "Screenshot z hry ${game.title}",
-                                modifier = Modifier
-                                    .width(280.dp)
-                                    .height(158.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                                contentScale = ContentScale.Crop,
-                                loading = { LoadingRow() },
+                        items(
+                            items = game.screenshotUrls.withIndex().toList(),
+                            key = { it.value },
+                        ) { indexedScreenshot ->
+                            ScreenshotThumbnail(
+                                url = indexedScreenshot.value,
+                                gameTitle = game.title,
+                                onClick = {
+                                    selectedScreenshotIndex = indexedScreenshot.index
+                                },
                             )
                         }
                     }
@@ -999,7 +1065,255 @@ private fun GameDetailScreen(
             }
         }
     }
+
+    selectedScreenshotIndex?.let { initialIndex ->
+        ScreenshotGalleryDialog(
+            urls = game.screenshotUrls,
+            gameTitle = game.title,
+            initialIndex = initialIndex.coerceIn(game.screenshotUrls.indices),
+            onDismiss = { selectedScreenshotIndex = null },
+        )
+    }
 }
+
+@Composable
+private fun ScreenshotThumbnail(
+    url: String,
+    gameTitle: String,
+    onClick: () -> Unit,
+) {
+    var hasFocus by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(14.dp)
+
+    ElevatedCard(
+        onClick = onClick,
+        modifier = Modifier
+            .width(280.dp)
+            .height(158.dp)
+            .onFocusChanged { hasFocus = it.hasFocus }
+            .border(
+                width = if (hasFocus) 3.dp else 0.dp,
+                color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent,
+                shape = shape,
+            ),
+        shape = shape,
+    ) {
+        SubcomposeAsyncImage(
+            model = url,
+            contentDescription = "Otvoriť screenshot z hry $gameTitle",
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentScale = ContentScale.Crop,
+            loading = { LoadingRow() },
+        )
+    }
+}
+
+@Composable
+private fun ScreenshotGalleryDialog(
+    urls: List<String>,
+    gameTitle: String,
+    initialIndex: Int,
+    onDismiss: () -> Unit,
+) {
+    if (urls.isEmpty()) return
+
+    val pagerState = rememberPagerState(
+        initialPage = initialIndex,
+        pageCount = { urls.size },
+    )
+    val scope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
+    val movePage: (Int) -> Unit = { direction ->
+        val target = (pagerState.currentPage + direction).coerceIn(urls.indices)
+        if (target != pagerState.currentPage) {
+            scope.launch { pagerState.animateScrollToPage(target) }
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionLeft -> {
+                            movePage(-1)
+                            true
+                        }
+                        Key.DirectionRight -> {
+                            movePage(1)
+                            true
+                        }
+                        else -> false
+                    }
+                },
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                ZoomableScreenshot(
+                    url = largeScreenshotUrl(urls[page]),
+                    gameTitle = gameTitle,
+                )
+            }
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 18.dp),
+                shape = RoundedCornerShape(18.dp),
+                color = Color.Black.copy(alpha = 0.72f),
+            ) {
+                Text(
+                    text = "${pagerState.currentPage + 1} / ${urls.size}",
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp)
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(50)),
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Zavrieť galériu", tint = Color.White)
+            }
+
+            if (pagerState.currentPage > 0) {
+                IconButton(
+                    onClick = { movePage(-1) },
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(10.dp)
+                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(50)),
+                ) {
+                    Icon(
+                        Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "Predchádzajúci screenshot",
+                        tint = Color.White,
+                        modifier = Modifier.size(38.dp),
+                    )
+                }
+            }
+
+            if (pagerState.currentPage < urls.lastIndex) {
+                IconButton(
+                    onClick = { movePage(1) },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(10.dp)
+                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(50)),
+                ) {
+                    Icon(
+                        Icons.Default.KeyboardArrowRight,
+                        contentDescription = "Nasledujúci screenshot",
+                        tint = Color.White,
+                        modifier = Modifier.size(38.dp),
+                    )
+                }
+            }
+
+            Text(
+                text = "Potiahni alebo použi D-pad  •  B zatvorí galériu",
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .background(Color.Black.copy(alpha = 0.72f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                color = Color.White,
+                fontSize = 12.sp,
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+}
+
+@Composable
+private fun ZoomableScreenshot(
+    url: String,
+    gameTitle: String,
+) {
+    var scale by remember(url) { mutableFloatStateOf(1f) }
+    var offset by remember(url) { mutableStateOf(Offset.Zero) }
+    var viewportSize by remember(url) { mutableStateOf(IntSize.Zero) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { viewportSize = it }
+            .pointerInput(url) {
+                awaitEachGesture {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+                            val isZoomGesture = event.changes.size > 1 || scale > 1.01f
+                            if (isZoomGesture) {
+                                val newScale = (scale * zoomChange).coerceIn(1f, 4f)
+                                val maxX = viewportSize.width * (newScale - 1f) / 2f
+                                val maxY = viewportSize.height * (newScale - 1f) / 2f
+                                scale = newScale
+                                offset = if (newScale <= 1.01f) {
+                                    Offset.Zero
+                                } else {
+                                    Offset(
+                                        x = (offset.x + panChange.x).coerceIn(-maxX, maxX),
+                                        y = (offset.y + panChange.y).coerceIn(-maxY, maxY),
+                                    )
+                                }
+                                event.changes.forEach { it.consume() }
+                            }
+                            if (event.changes.none { it.pressed }) break
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        SubcomposeAsyncImage(
+            model = url,
+            contentDescription = "Zväčšený screenshot z hry $gameTitle",
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y,
+                ),
+            contentScale = ContentScale.Fit,
+            loading = { LoadingRow() },
+            error = {
+                Text(
+                    text = "Screenshot sa nepodarilo načítať.",
+                    color = Color.White,
+                )
+            },
+        )
+    }
+}
+
+internal fun largeScreenshotUrl(url: String): String =
+    url.replace("/t_screenshot_big/", "/t_1080p/")
 
 @Composable
 private fun SettingsScreen(

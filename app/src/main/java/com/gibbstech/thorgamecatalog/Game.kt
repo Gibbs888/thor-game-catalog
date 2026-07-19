@@ -7,6 +7,7 @@ enum class Platform(
     val thumbnailRepository: String,
     val igdbId: Int,
     val screenScraperId: Int,
+    val nativeCutoffYear: Int,
 ) {
     PS1(
         id = "ps1",
@@ -15,6 +16,7 @@ enum class Platform(
         thumbnailRepository = "Sony_-_PlayStation",
         igdbId = 7,
         screenScraperId = 57,
+        nativeCutoffYear = 1989,
     ),
     PS2(
         id = "ps2",
@@ -23,6 +25,7 @@ enum class Platform(
         thumbnailRepository = "Sony_-_PlayStation_2",
         igdbId = 8,
         screenScraperId = 58,
+        nativeCutoffYear = 1995,
     ),
     PSP(
         id = "psp",
@@ -31,6 +34,7 @@ enum class Platform(
         thumbnailRepository = "Sony_-_PlayStation_Portable",
         igdbId = 38,
         screenScraperId = 61,
+        nativeCutoffYear = 2001,
     ),
     GAMECUBE(
         id = "gamecube",
@@ -39,6 +43,7 @@ enum class Platform(
         thumbnailRepository = "Nintendo_-_GameCube",
         igdbId = 21,
         screenScraperId = 13,
+        nativeCutoffYear = 1996,
     ),
     WII(
         id = "wii",
@@ -47,6 +52,7 @@ enum class Platform(
         thumbnailRepository = "Nintendo_-_Wii",
         igdbId = 5,
         screenScraperId = 16,
+        nativeCutoffYear = 2004,
     ),
     DREAMCAST(
         id = "dreamcast",
@@ -55,6 +61,7 @@ enum class Platform(
         thumbnailRepository = "Sega_-_Dreamcast",
         igdbId = 23,
         screenScraperId = 23,
+        nativeCutoffYear = 1993,
     ),
     NDS(
         id = "nds",
@@ -63,6 +70,7 @@ enum class Platform(
         thumbnailRepository = "Nintendo_-_Nintendo_DS",
         igdbId = 20,
         screenScraperId = 15,
+        nativeCutoffYear = 1999,
     ),
     N3DS(
         id = "n3ds",
@@ -71,6 +79,16 @@ enum class Platform(
         thumbnailRepository = "Nintendo_-_Nintendo_3DS",
         igdbId = 37,
         screenScraperId = 17,
+        nativeCutoffYear = 2006,
+    ),
+    SWITCH(
+        id = "switch",
+        label = "Nintendo Switch",
+        shortLabel = "Switch",
+        thumbnailRepository = "Nintendo_-_Nintendo_Switch",
+        igdbId = 130,
+        screenScraperId = 225,
+        nativeCutoffYear = 2011,
     );
 
     companion object {
