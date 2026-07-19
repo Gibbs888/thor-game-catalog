@@ -1024,13 +1024,28 @@ private fun GameDetailScreen(
                         text = "Pre túto hru nie je dostupné video.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    showVideo -> GameVideoPlayer(
-                        game = game,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(220.dp)
-                            .clip(RoundedCornerShape(16.dp)),
-                    )
+                    showVideo -> Column {
+                        GameVideoPlayer(
+                            game = game,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(220.dp)
+                                .clip(RoundedCornerShape(16.dp)),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = when {
+                                !game.previewVideoUrl.isNullOrBlank() &&
+                                    !game.youtubeVideoId.isNullOrBlank() ->
+                                    "Zdroj: ScreenScraper • záloha: YouTube"
+                                !game.previewVideoUrl.isNullOrBlank() ->
+                                    "Zdroj videa: ScreenScraper"
+                                else -> "Zdroj videa: YouTube / IGDB"
+                            },
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 12.sp,
+                        )
+                    }
                     else -> Button(onClick = { showVideo = true }) {
                         Icon(Icons.Default.PlayArrow, contentDescription = null)
                         Spacer(Modifier.width(8.dp))

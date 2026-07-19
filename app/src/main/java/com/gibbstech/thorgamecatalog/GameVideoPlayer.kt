@@ -1,9 +1,9 @@
 package com.gibbstech.thorgamecatalog
 
-import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.view.ViewGroup
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,9 +15,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,13 +38,22 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+import kotlinx.coroutines.delay
 
 @Composable
 fun GameVideoPlayer(game: Game, modifier: Modifier = Modifier) {
+    var directVideoFailed by remember(game.id) { mutableStateOf(false) }
     when {
-        !game.previewVideoUrl.isNullOrBlank() -> DirectVideoPlayer(
+        !game.previewVideoUrl.isNullOrBlank() && !directVideoFailed -> DirectVideoPlayer(
             url = game.previewVideoUrl,
             modifier = modifier,
+            onPlaybackError = {
+                if (!game.youtubeVideoId.isNullOrBlank()) directVideoFailed = true
+            },
         )
 
         !game.youtubeVideoId.isNullOrBlank() -> YouTubeVideoPlayer(
@@ -53,7 +64,11 @@ fun GameVideoPlayer(game: Game, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DirectVideoPlayer(url: String, modifier: Modifier) {
+private fun DirectVideoPlayer(
+    url: String,
+    modifier: Modifier,
+    onPlaybackError: () -> Unit,
+) {
     val context = LocalContext.current
     var isBuffering by remember(url) { mutableStateOf(true) }
     var errorMessage by remember(url) { mutableStateOf<String?>(null) }
@@ -82,6 +97,7 @@ private fun DirectVideoPlayer(url: String, modifier: Modifier) {
             override fun onPlayerError(error: PlaybackException) {
                 isBuffering = false
                 errorMessage = videoPlaybackErrorMessage(error)
+                onPlaybackError()
             }
         }
         player.addListener(listener)
@@ -157,31 +173,95 @@ private fun videoPlaybackErrorMessage(error: PlaybackException): String = when (
     else -> "Video sa nepodarilo prehrať (${error.errorCodeName})."
 }
 
-@SuppressLint("SetJavaScriptEnabled")
 @Composable
 private fun YouTubeVideoPlayer(videoId: String, modifier: Modifier) {
     val context = LocalContext.current
-    val webView = remember(videoId) {
-        WebView(context).apply {
-            settings.javaScriptEnabled = true
-            settings.mediaPlaybackRequiresUserGesture = false
-            webViewClient = WebViewClient()
-            loadUrl(
-                "https://www.youtube.com/embed/$videoId" +
-                    "?autoplay=1&playsinline=1&rel=0",
+    var isReady by remember(videoId) { mutableStateOf(false) }
+    var errorMessage by remember(videoId) { mutableStateOf<String?>(null) }
+    val playerView = remember(videoId) {
+        YouTubePlayerView(context).apply {
+            enableAutomaticInitialization = false
+            setBackgroundColor(android.graphics.Color.BLACK)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
             )
         }
     }
 
-    DisposableEffect(webView) {
+    DisposableEffect(playerView, videoId) {
+        val listener = object : AbstractYouTubePlayerListener() {
+            override fun onReady(youTubePlayer: YouTubePlayer) {
+                isReady = true
+                errorMessage = null
+                youTubePlayer.loadVideo(videoId, 0f)
+            }
+
+            override fun onError(
+                youTubePlayer: YouTubePlayer,
+                error: com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants.PlayerError,
+            ) {
+                errorMessage = "YouTube video sa nepodarilo načítať ($error)."
+            }
+        }
+        val options = IFramePlayerOptions.Builder(context)
+            .controls(1)
+            .fullscreen(1)
+            .rel(0)
+            .build()
+        playerView.initialize(listener, true, options)
         onDispose {
-            webView.stopLoading()
-            webView.destroy()
+            playerView.release()
         }
     }
 
-    AndroidView(
-        factory = { webView },
-        modifier = modifier,
+    LaunchedEffect(videoId, isReady) {
+        if (!isReady) {
+            delay(12_000)
+            if (!isReady) {
+                errorMessage = "YouTube prehrávač sa nenačítal."
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier.background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        AndroidView(
+            factory = { playerView },
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        if (!isReady && errorMessage == null) {
+            CircularProgressIndicator()
+        }
+
+        errorMessage?.let { message ->
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = message,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { openYouTube(context, videoId) }) {
+                    Text("Otvoriť v YouTube")
+                }
+            }
+        }
+    }
+}
+
+private fun openYouTube(context: Context, videoId: String) {
+    context.startActivity(
+        Intent(Intent.ACTION_VIEW, Uri.parse(youtubeWatchUrl(videoId))),
     )
 }
+
+internal fun youtubeWatchUrl(videoId: String): String =
+    "https://www.youtube.com/watch?v=$videoId"
