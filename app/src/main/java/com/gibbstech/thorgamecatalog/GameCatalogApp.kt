@@ -1261,29 +1261,27 @@ private fun ZoomableScreenshot(
             .onSizeChanged { viewportSize = it }
             .pointerInput(url) {
                 awaitEachGesture {
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val zoomChange = event.calculateZoom()
-                            val panChange = event.calculatePan()
-                            val isZoomGesture = event.changes.size > 1 || scale > 1.01f
-                            if (isZoomGesture) {
-                                val newScale = (scale * zoomChange).coerceIn(1f, 4f)
-                                val maxX = viewportSize.width * (newScale - 1f) / 2f
-                                val maxY = viewportSize.height * (newScale - 1f) / 2f
-                                scale = newScale
-                                offset = if (newScale <= 1.01f) {
-                                    Offset.Zero
-                                } else {
-                                    Offset(
-                                        x = (offset.x + panChange.x).coerceIn(-maxX, maxX),
-                                        y = (offset.y + panChange.y).coerceIn(-maxY, maxY),
-                                    )
-                                }
-                                event.changes.forEach { it.consume() }
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val zoomChange = event.calculateZoom()
+                        val panChange = event.calculatePan()
+                        val isZoomGesture = event.changes.size > 1 || scale > 1.01f
+                        if (isZoomGesture) {
+                            val newScale = (scale * zoomChange).coerceIn(1f, 4f)
+                            val maxX = viewportSize.width * (newScale - 1f) / 2f
+                            val maxY = viewportSize.height * (newScale - 1f) / 2f
+                            scale = newScale
+                            offset = if (newScale <= 1.01f) {
+                                Offset.Zero
+                            } else {
+                                Offset(
+                                    x = (offset.x + panChange.x).coerceIn(-maxX, maxX),
+                                    y = (offset.y + panChange.y).coerceIn(-maxY, maxY),
+                                )
                             }
-                            if (event.changes.none { it.pressed }) break
+                            event.changes.forEach { it.consume() }
                         }
+                        if (event.changes.none { it.pressed }) break
                     }
                 }
             },
