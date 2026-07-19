@@ -22,6 +22,7 @@ object GameRepository {
                         year = item.getInt("year"),
                         description = item.getString("description"),
                         thumbnailName = item.getString("thumbnailName"),
+                        region = item.optString("region", "EU"),
                     ),
                 )
             }
