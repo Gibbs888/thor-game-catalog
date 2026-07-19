@@ -44,10 +44,10 @@ class ApiPreferences(context: Context) {
         secureStore.put(KEY_IGDB_CLIENT_ID, config.igdbClientId.trim())
         secureStore.put(KEY_IGDB_CLIENT_SECRET, config.igdbClientSecret.trim())
         secureStore.put(KEY_SS_DEVELOPER_ID, config.screenScraperDeveloperId.trim())
-        secureStore.put(KEY_SS_DEVELOPER_PASSWORD, config.screenScraperDeveloperPassword)
+        secureStore.put(KEY_SS_DEVELOPER_PASSWORD, config.screenScraperDeveloperPassword.trim())
         secureStore.put(KEY_SS_SOFT_NAME, config.screenScraperSoftName.trim())
         secureStore.put(KEY_SS_USERNAME, config.screenScraperUsername.trim())
-        secureStore.put(KEY_SS_PASSWORD, config.screenScraperPassword)
+        secureStore.put(KEY_SS_PASSWORD, config.screenScraperPassword.trim())
     }
 
     private companion object {

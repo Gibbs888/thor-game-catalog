@@ -11,14 +11,34 @@ class ScreenScraperApiClient {
         require(config.isScreenScraperReady) {
             "Najprv nastav ScreenScraper Developer ID a Developer Password."
         }
-        val response = request(apiUrl("ssinfraInfos.php", config, emptyMap()))
-        if (response.code !in 200..299) {
-            throw ApiException("ScreenScraper chyba ${response.code}: ${response.body.take(160)}")
+        val developerResponse = request(
+            apiUrl(
+                endpoint = "ssinfraInfos.php",
+                config = config,
+                extra = emptyMap(),
+                includeUserCredentials = false,
+            ),
+        )
+        ensureSuccessfulResponse("Developer", developerResponse)
+
+        val hasUsername = config.screenScraperUsername.isNotBlank()
+        val hasPassword = config.screenScraperPassword.isNotBlank()
+        if (hasUsername != hasPassword) {
+            throw ApiException(
+                "Vyplň používateľské meno aj heslo ScreenScraper, alebo nechaj obe prázdne.",
+            )
         }
-        if (response.body.contains("Erreur", ignoreCase = true) ||
-            response.body.contains("error", ignoreCase = true)
-        ) {
-            throw ApiException("ScreenScraper odmietol prihlasovacie údaje.")
+
+        if (hasUsername) {
+            val userResponse = request(
+                apiUrl(
+                    endpoint = "ssuserInfos.php",
+                    config = config,
+                    extra = emptyMap(),
+                    includeUserCredentials = true,
+                ),
+            )
+            ensureSuccessfulResponse("používateľ", userResponse)
         }
     }
 
@@ -104,16 +124,17 @@ class ScreenScraperApiClient {
         endpoint: String,
         config: ApiConfig,
         extra: Map<String, String>,
+        includeUserCredentials: Boolean = true,
     ): String {
         val parameters = linkedMapOf(
             "devid" to config.screenScraperDeveloperId.trim(),
-            "devpassword" to config.screenScraperDeveloperPassword,
-            "softname" to config.screenScraperSoftName.ifBlank { "ThorGameCatalog" },
+            "devpassword" to config.screenScraperDeveloperPassword.trim(),
+            "softname" to config.screenScraperSoftName.trim().ifBlank { "ThorGameCatalog" },
             "output" to "json",
         )
-        if (config.screenScraperUsername.isNotBlank()) {
+        if (includeUserCredentials && config.screenScraperUsername.isNotBlank()) {
             parameters["ssid"] = config.screenScraperUsername.trim()
-            parameters["sspassword"] = config.screenScraperPassword
+            parameters["sspassword"] = config.screenScraperPassword.trim()
         }
         parameters.putAll(extra)
         return "https://api.screenscraper.fr/api2/$endpoint?" +
@@ -128,4 +149,22 @@ class ScreenScraperApiClient {
         Normalizer.Form.NFD,
     ).replace("\\p{Mn}+".toRegex(), "")
         .replace("[^a-z0-9]".toRegex(), "")
+
+    private fun ensureSuccessfulResponse(label: String, response: HttpResponse) {
+        val apiError = screenScraperApiError(response.body)
+        if (response.code !in 200..299 || apiError != null) {
+            val detail = apiError ?: response.body.trim()
+                .replace(Regex("\\s+"), " ")
+                .take(220)
+                .ifBlank { "server nevrátil podrobnosti" }
+            throw ApiException("ScreenScraper $label chyba ${response.code}: $detail")
+        }
+    }
 }
+
+internal fun screenScraperApiError(body: String): String? = runCatching {
+    JSONObject(body).optJSONObject("header")
+        ?.optString("error")
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+}.getOrNull()
