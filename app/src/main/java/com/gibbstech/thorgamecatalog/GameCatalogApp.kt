@@ -217,6 +217,10 @@ fun GameCatalogApp() {
         isEnrichingDetail = true
         try {
             detailGame = screenScraperClient.enrichGame(apiConfig, game)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            detailGame = game
         } finally {
             isEnrichingDetail = false
         }
@@ -453,12 +457,6 @@ private fun OnlineCatalogScreen(
             )
         }
 
-        if (error != null && games.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                ErrorBanner(error, onRetry)
-            }
-        }
-
         items(games, key = { it.id }) { game ->
             GameCard(game = game, onClick = { onGameSelected(game) })
         }
@@ -466,7 +464,7 @@ private fun OnlineCatalogScreen(
         item(span = { GridItemSpan(maxLineSpan) }) {
             when {
                 isLoading || isLoadingMore -> LoadingRow()
-                error != null && games.isEmpty() -> ErrorBanner(error, onRetry)
+                error != null -> ErrorBanner(error, onRetry)
                 games.isEmpty() -> EmptyOnlineCatalog()
                 hasMore -> {
                     LaunchedEffect(games.size, hasMore) { onLoadMore() }
