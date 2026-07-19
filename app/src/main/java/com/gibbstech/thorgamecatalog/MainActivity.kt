@@ -46,12 +46,12 @@ class MainActivity : ComponentActivity() {
             ?: event.getAxisValue(MotionEvent.AXIS_X)
         val y = hatY.takeIf { abs(it) >= DEAD_ZONE }
             ?: event.getAxisValue(MotionEvent.AXIS_Y)
-        val direction = when {
-            abs(x) < DEAD_ZONE && abs(y) < DEAD_ZONE -> KeyEvent.KEYCODE_UNKNOWN
-            abs(x) > abs(y) && x < 0 -> KeyEvent.KEYCODE_DPAD_LEFT
-            abs(x) > abs(y) -> KeyEvent.KEYCODE_DPAD_RIGHT
-            y < 0 -> KeyEvent.KEYCODE_DPAD_UP
-            else -> KeyEvent.KEYCODE_DPAD_DOWN
+        val direction = when (controllerDirection(x, y, DEAD_ZONE)) {
+            ControllerDirection.NONE -> KeyEvent.KEYCODE_UNKNOWN
+            ControllerDirection.LEFT -> KeyEvent.KEYCODE_DPAD_LEFT
+            ControllerDirection.RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT
+            ControllerDirection.UP -> KeyEvent.KEYCODE_DPAD_UP
+            ControllerDirection.DOWN -> KeyEvent.KEYCODE_DPAD_DOWN
         }
 
         if (direction == KeyEvent.KEYCODE_UNKNOWN) {
