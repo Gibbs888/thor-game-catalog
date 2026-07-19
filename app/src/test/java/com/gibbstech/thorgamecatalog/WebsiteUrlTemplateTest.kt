@@ -9,11 +9,12 @@ import org.junit.Test
 class WebsiteUrlTemplateTest {
     private val game = Game(
         id = "ps1-crash-bandicoot",
+        igdbId = 123,
         title = "Crash Bandicoot",
         platform = Platform.PS1,
         year = 1996,
         description = "Test",
-        thumbnailName = "Crash Bandicoot (Europe)",
+        coverUrl = null,
         region = "EU",
     )
 
